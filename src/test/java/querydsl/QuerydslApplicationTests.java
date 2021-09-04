@@ -2,6 +2,8 @@ package querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,8 +11,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 import querydsl.domain.Member;
-import querydsl.domain.QTeam;
+import querydsl.domain.QMember;
 import querydsl.domain.Team;
+import querydsl.dto.MemberDTO;
+import querydsl.dto.QTeamDTO;
+import querydsl.dto.TeamDTO;
 import querydsl.repository.MemberRepository;
 import querydsl.repository.TeamRepository;
 
@@ -19,6 +24,9 @@ import javax.persistence.PersistenceContext;
 
 import java.util.List;
 
+import static com.querydsl.core.types.ExpressionUtils.*;
+import static com.querydsl.core.types.Projections.*;
+import static com.querydsl.jpa.JPAExpressions.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static querydsl.domain.QMember.*;
 import static querydsl.domain.QTeam.*;
@@ -190,4 +198,203 @@ class QuerydslApplicationTests {
 		assertEquals(tuple2.get(team.name), "team2");
 
 	}
+
+	@Test
+	public void leftJoin() throws Exception {
+
+		//select * from member left join team using (team_id)
+		//team_id를 member.team에서 꺼내온다.
+		List<Member> memberList = queryFactory
+				.selectFrom(member)
+				.leftJoin(member.team, team)
+				.fetch();
+
+		for (Member m : memberList) {
+			System.out.println(m);
+		}
+
+		/*
+		select *
+		from member
+			left join team team1
+				on team1.team_id = member.team_id
+			left join team team2
+		 		on team1.team_id = team2.team_id
+
+		join절에 team만 들어감으로 인해 세타조인 발생
+			> member.team.name에서 필요한 team을 한번 더 조인해옴
+		*/
+		List<Tuple> tupleList = queryFactory
+				.select(member, team)
+				.from(member)
+				.leftJoin(team)
+				.on(member.team.name.eq(team.name))
+				.fetch();
+
+		for (Tuple tuple : tupleList) {
+			System.out.println(tuple);
+		}
+
+
+		/*
+		select * from member left join team
+		on member.team_id = team.team_id
+		and team.name = team.name
+
+		join절에 member.team이 들어감으로인해,
+		member.team.name에서 필요한 team을 따로 조인으로 찾아오지 않음
+		*/
+		List<Tuple> tupleList2 = queryFactory
+				.select(member, team)
+				.from(member)
+				.leftJoin(member.team, team)
+				.on(team.name.eq(member.team.name))
+				.fetch();
+
+		for (Tuple tuple : tupleList2) {
+			System.out.println(tuple);
+		}
+
+	}
+
+
+	@Test
+	public void fetchJoin() throws Exception {
+
+		em.flush();
+		em.clear();
+
+		List<Member> memberList = queryFactory
+				.selectFrom(member)
+				.join(member.team, team).fetchJoin()
+				.fetch();
+
+	}
+
+	@Test
+	public void subQuery() throws Exception {
+
+		//JPAExpressions.select로 서브쿼리 사용
+		QMember sub = new QMember("sub");
+
+		//select * from member where age in
+		//( select age from member where age >= 15 )
+
+		List<Member> memberList = queryFactory
+				.selectFrom(member)
+				.where(member.age.in(
+								select(sub.age)
+								.from(sub)
+								.where(sub.age.goe(15))
+						))
+				.fetch();
+
+	}
+
+	@Test
+	public void caseQuery() throws Exception {
+
+		List<String> ageList = queryFactory
+				.select(member.age
+						.when(10).then("열살")
+						.when(20).then("스무살")
+						.otherwise("그외"))
+				.from(member)
+				.fetch();
+
+		List<String> ageList2 = queryFactory
+				.select(new CaseBuilder()
+						.when(member.age.eq(5)).then("다섯살")
+						.when(member.age.eq(10)).then("열살")
+						.when(member.name.eq("member1")).then("member20")
+						.otherwise("그외")
+				)
+				.from(member)
+				.fetch();
+
+	}
+	
+	@Test
+	public void constant() throws Exception {
+
+		List<Tuple> tupleList = queryFactory
+				.select(member.name, Expressions.constant("constant"))
+				.from(member)
+				.fetch();
+
+		//"name_age"
+		List<String> stringList = queryFactory
+				.select(member.name.concat("_").concat(member.age.stringValue()))
+				.from(member)
+				.fetch();
+
+	}
+
+	@Test
+	public void findByDTO() throws Exception {
+
+
+		//Projections.bean
+		//need getter, setter, noArgsConstructor
+		List<MemberDTO> memberList = queryFactory
+				.select(bean(MemberDTO.class, member.name, member.age))
+				.from(member)
+				.fetch();
+
+		for (MemberDTO memberDTO : memberList) {
+			System.out.println(memberDTO);
+		}
+
+		//Projections.fields
+		//do not need getter, setter
+		List<MemberDTO> memberList2 = queryFactory
+				.select(fields(MemberDTO.class, member.name, member.age, member.age.as("age2")))
+				.from(member)
+				.fetch();
+
+		for (MemberDTO memberDTO : memberList2) {
+			System.out.println(memberDTO);
+		}
+
+		//Projections.constructor
+		//need constructor
+		List<MemberDTO> memberList3 = queryFactory
+				.select(constructor(MemberDTO.class, member.name, member.age))
+				.from(member)
+				.fetch();
+
+		for (MemberDTO memberDTO : memberList3) {
+			System.out.println(memberDTO);
+		}
+
+	}
+
+	@Test
+	public void findSubqueryByDTO() throws Exception {
+
+		QMember qm = new QMember("qm");
+
+		//서브쿼리를 사용하는경우, 다른 별칭을가진 QMember를 사용하므로,
+		//ExpressionUtils.as로 감싸줘야한다.
+
+		List<MemberDTO> memberList = queryFactory
+				.select(bean(MemberDTO.class,
+						member.name,
+						as(select(qm.member.age).from(qm), "age")
+				))
+				.from(member)
+				.fetch();
+
+	}
+
+	@Test
+	public void findByQueryProjection() throws Exception {
+
+		List<TeamDTO> teamList = queryFactory
+				.select(new QTeamDTO(team.name))
+				.from(team)
+				.fetch();
+
+	}
+
 }
