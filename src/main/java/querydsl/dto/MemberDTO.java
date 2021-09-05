@@ -9,7 +9,7 @@ public class MemberDTO {
 
     private String name;
     private int age;
-    private int age2;
+    //private int age2;
 
     public MemberDTO (String name, int age){
         this.name = name;

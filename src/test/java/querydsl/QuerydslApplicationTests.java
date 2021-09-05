@@ -382,7 +382,8 @@ class QuerydslApplicationTests {
         List<MemberDTO> memberList = queryFactory
                 .select(bean(MemberDTO.class,
                         member.name,
-                        as(select(qm.member.age).from(qm), "age")
+                        as(select(qm.member.age.max())
+                           .from(qm), "age")
                 ))
                 .from(member)
                 .fetch();
